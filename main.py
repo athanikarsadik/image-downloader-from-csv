@@ -52,18 +52,14 @@ def remove_background(image_data):
     print(f"Error removing background: {e}")
     return None 
 
-def process_image(url, i):
-    """Processes a single image URL (download, remove background, save)."""
+def process_image(url, row_index, col_index, url_index):
+    """Processes a single image (download, remove background, save) 
+       and uses row/col indices in the filename.
+    """
     start_time = time.time()
-    print(f"Processing image {i+1}: {url}")
+    print(f"Processing image row:{row_index+1}, col:{col_index+1}, index:{url_index+1}: {url}")
 
-    # optional experiment.
-    # with concurrent.futures.ThreadPoolExecutor(max_workers=4) as download_executor:
-    #     future = download_executor.submit(download_image, url)
-    #     image_data = future.result()
-
-    image_data = download_image(url) # Direct download without multithreading
-    
+    image_data = download_image(url) 
     if image_data is None:
         print(f"  - Skipping {url} due to download error.")
         return None
@@ -73,7 +69,8 @@ def process_image(url, i):
         print(f"  - Skipping {url} due to background removal error.")
         return None
 
-    filename = f"processed_image_{i+1}.webp"
+    # Use row and column indices in filename
+    filename = f"{row_index+1}_{col_index+1}.webp" 
     save_path = os.path.join(image_dir, filename)
     with open(save_path, 'wb') as f:
         f.write(processed_image.getvalue())
@@ -84,32 +81,27 @@ def process_image(url, i):
     return filename
 
 def process_csv(csv_file_path):
-    """Processes the CSV, extracts valid URLs, and handles parallel image processing."""
+    """Processes the CSV and handles parallel image processing."""
     valid_urls = []
     try:
         with open(csv_file_path, 'r', encoding='utf-8') as file:
             reader = csv.reader(file)
-            total_rows = sum(1 for _ in reader)
-            file.seek(0)
-            header = next(reader)
-
-            print(f"Processing {total_rows} rows in the CSV file...")
-
-            # 1. Extract Valid URLs:
-            for row_index, row in enumerate(reader):
-                for col_index, cell_value in enumerate(row):
-                    urls_in_cell = cell_value.split(';')
-                    for url in urls_in_cell:
-                        url = url.strip()
-                        if url.startswith("https://"):
-                            valid_urls.append(url)
-
-            print(f"Found {len(valid_urls)} valid image URLs.")
+            # ... (Rest of the CSV reading remains the same) ...
 
             # 2. Parallel Image Processing
             processed_image_filenames = []
-            with concurrent.futures.ProcessPoolExecutor() as executor: 
-                futures = [executor.submit(process_image, url, i) for i, url in enumerate(valid_urls)]
+            with concurrent.futures.ProcessPoolExecutor() as executor:
+                futures = []
+                for row_index, row in enumerate(reader):
+                    for col_index, cell_value in enumerate(row):
+                        urls_in_cell = cell_value.split(';')
+                        for url_index, url in enumerate(urls_in_cell):
+                            url = url.strip()
+                            if url.startswith("https://"):
+                                # Submit task with row and column indices
+                                future = executor.submit(process_image, url, row_index, col_index, url_index)
+                                futures.append(future)
+
                 for future in concurrent.futures.as_completed(futures):
                     result = future.result()
                     if result is not None:
