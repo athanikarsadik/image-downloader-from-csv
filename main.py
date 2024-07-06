@@ -9,6 +9,7 @@ import requests
 from requests.exceptions import ConnectionError, Timeout
 from urllib3.exceptions import NameResolutionError
 import time
+import concurrent.futures
 
 data_dir = "data"  # Folder for input CSV
 output_dir = "output" # Folder for output zip
@@ -51,8 +52,39 @@ def remove_background(image_data):
     print(f"Error removing background: {e}")
     return None 
 
+def process_image(url, i):
+    """Processes a single image URL (download, remove background, save)."""
+    start_time = time.time()
+    print(f"Processing image {i+1}: {url}")
+
+    # optional experiment.
+    # with concurrent.futures.ThreadPoolExecutor(max_workers=4) as download_executor:
+    #     future = download_executor.submit(download_image, url)
+    #     image_data = future.result()
+
+    image_data = download_image(url) # Direct download without multithreading
+    
+    if image_data is None:
+        print(f"  - Skipping {url} due to download error.")
+        return None
+
+    processed_image = remove_background(image_data)
+    if processed_image is None:
+        print(f"  - Skipping {url} due to background removal error.")
+        return None
+
+    filename = f"processed_image_{i+1}.webp"
+    save_path = os.path.join(image_dir, filename)
+    with open(save_path, 'wb') as f:
+        f.write(processed_image.getvalue())
+
+    end_time = time.time()
+    processing_time = round(end_time - start_time, 2)
+    print(f"  - Processed in {processing_time} seconds.")
+    return filename
+
 def process_csv(csv_file_path):
-    """Processes the CSV file, extracts valid URLs, and handles image processing."""
+    """Processes the CSV, extracts valid URLs, and handles parallel image processing."""
     valid_urls = []
     try:
         with open(csv_file_path, 'r', encoding='utf-8') as file:
@@ -69,46 +101,27 @@ def process_csv(csv_file_path):
                     urls_in_cell = cell_value.split(';')
                     for url in urls_in_cell:
                         url = url.strip()
-                        if url.startswith("https://"): 
+                        if url.startswith("https://"):
                             valid_urls.append(url)
 
             print(f"Found {len(valid_urls)} valid image URLs.")
 
-            # 2. Process Images:
+            # 2. Parallel Image Processing
             processed_image_filenames = []
-            for i, url in enumerate(valid_urls):
-                start_time = time.time()
-                print(f"Processing image {i+1}/{len(valid_urls)}: {url}") 
-                
-                # Download 
-                image_data = download_image(url)
-                if image_data is None:
-                    print(f"  - Skipping {url} due to download error.")
-                    continue
-
-                # Remove Background
-                processed_image = remove_background(image_data)
-                if processed_image is None:
-                    print(f"  - Skipping {url} due to background removal error.")
-                    continue
-
-                # Save Image 
-                filename = f"processed_image_{i+1}.webp"
-                save_path = os.path.join(image_dir, filename)
-                with open(save_path, 'wb') as f:
-                    f.write(processed_image.getvalue())
-                processed_image_filenames.append(filename)
-
-                end_time = time.time()
-                processing_time = round(end_time - start_time, 2)
-                print(f"  - Processed in {processing_time} seconds.")
+            with concurrent.futures.ProcessPoolExecutor() as executor: 
+                futures = [executor.submit(process_image, url, i) for i, url in enumerate(valid_urls)]
+                for future in concurrent.futures.as_completed(futures):
+                    result = future.result()
+                    if result is not None:
+                        processed_image_filenames.append(result)
 
         print("CSV processing complete!")
-        return processed_image_filenames 
+        return processed_image_filenames
 
     except FileNotFoundError:
         print(f"Error: CSV file not found at '{csv_file_path}'")
         return []
+
 def zip_processed_images(image_filenames):
     """Zips processed images into an archive in the specified zip directory."""
     if image_filenames:
