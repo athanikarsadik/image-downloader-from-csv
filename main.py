@@ -70,7 +70,7 @@ def process_image(url, row_index, col_index, url_index):
         return None
 
     # Use row and column indices in filename
-    filename = f"{row_index+1}_{col_index+1}.webp" 
+    filename = f"{row_index+1}_{col_index+1}_{url_index}.webp" 
     save_path = os.path.join(image_dir, filename)
     with open(save_path, 'wb') as f:
         f.write(processed_image.getvalue())
@@ -86,8 +86,6 @@ def process_csv(csv_file_path):
     try:
         with open(csv_file_path, 'r', encoding='utf-8') as file:
             reader = csv.reader(file)
-            # ... (Rest of the CSV reading remains the same) ...
-
             # 2. Parallel Image Processing
             processed_image_filenames = []
             with concurrent.futures.ProcessPoolExecutor() as executor:
