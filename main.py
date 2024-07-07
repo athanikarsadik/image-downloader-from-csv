@@ -52,12 +52,12 @@ def remove_background(image_data):
     print(f"Error removing background: {e}")
     return None 
 
-def process_image(url, row_index, col_index, url_index):
+def process_image(url, row_index, col_index):
     """Processes a single image (download, remove background, save) 
        and uses row/col indices in the filename.
     """
     start_time = time.time()
-    print(f"Processing image row:{row_index+1}, col:{col_index+1}, index:{url_index+1}: {url}")
+    print(f"Processing image row:{row_index+1}, col:{col_index+1}: {url}")
 
     image_data = download_image(url) 
     if image_data is None:
@@ -70,7 +70,7 @@ def process_image(url, row_index, col_index, url_index):
         return None
 
     # Use row and column indices in filename
-    filename = f"{row_index+1}_{col_index+1}_{url_index}.webp" 
+    filename = f"{row_index+1}_{col_index+1}.webp" 
     save_path = os.path.join(image_dir, filename)
     with open(save_path, 'wb') as f:
         f.write(processed_image.getvalue())
@@ -81,24 +81,31 @@ def process_image(url, row_index, col_index, url_index):
     return filename
 
 def process_csv(csv_file_path):
-    """Processes the CSV and handles parallel image processing."""
-    valid_urls = []
+    """Processes the first 6 URLs found in each row of the CSV 
+       and handles parallel image processing.
+    """
     try:
         with open(csv_file_path, 'r', encoding='utf-8') as file:
             reader = csv.reader(file)
+
+            print(f"Processing CSV file...")
+
             # 2. Parallel Image Processing
             processed_image_filenames = []
             with concurrent.futures.ProcessPoolExecutor() as executor:
                 futures = []
                 for row_index, row in enumerate(reader):
+                    url_count = 0  # Counter for processed URLs in the current row
                     for col_index, cell_value in enumerate(row):
                         urls_in_cell = cell_value.split(';')
                         for url_index, url in enumerate(urls_in_cell):
                             url = url.strip()
-                            if url.startswith("https://"):
-                                # Submit task with row and column indices
-                                future = executor.submit(process_image, url, row_index, col_index, url_index)
+                            if url.startswith("https://") and url_count < 6:
+                                future = executor.submit(
+                                    process_image, url, row_index, col_index
+                                )
                                 futures.append(future)
+                                url_count += 1  
 
                 for future in concurrent.futures.as_completed(futures):
                     result = future.result()
@@ -111,6 +118,7 @@ def process_csv(csv_file_path):
     except FileNotFoundError:
         print(f"Error: CSV file not found at '{csv_file_path}'")
         return []
+
 
 def zip_processed_images(image_filenames):
     """Zips processed images into an archive in the specified zip directory."""
@@ -127,8 +135,8 @@ def zip_processed_images(image_filenames):
 
 if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    csv_file = os.path.join(script_dir, data_dir, "input.csv") # Use data_dir
+    csv_file = os.path.join(script_dir, data_dir, "input.csv") 
 
-    processed_filenames = process_csv(csv_file) # Use image_dir
+    processed_filenames = process_csv(csv_file) 
     if processed_filenames:
         zip_processed_images(processed_filenames, image_dir=image_dir, zip_dir=output_dir)
