@@ -8,21 +8,19 @@ from rembg import remove
 import requests
 from requests.exceptions import ConnectionError, Timeout
 from urllib3.exceptions import NameResolutionError
-import time
 import concurrent.futures
 
-data_dir = "data"  # Folder for input CSV
-output_dir = "output" # Folder for output zip
-image_dir = os.path.join(output_dir, "images") # Folder for processed images 
+data_dir = "data"  # input CSV
+output_dir = "output" # output zip
+image_dir = os.path.join(output_dir, "images") # processed images 
 
-# --- Create Directories if they don't exist ---
 os.makedirs(data_dir, exist_ok=True)
 os.makedirs(image_dir, exist_ok=True)
 
 def download_image(url):
     """Downloads an image from a given URL."""
     try:
-        response = requests.get(url, timeout=10) # Added timeout
+        response = requests.get(url, timeout=10) 
         response.raise_for_status() 
         return BytesIO(response.content)
     except (ConnectionError, Timeout) as e:
@@ -43,7 +41,6 @@ def remove_background(image_data):
     output = remove(img)
     output_buffer = BytesIO()
 
-    # Save as WebP
     PILImage.fromarray(output).save(output_buffer, format="WebP", lossless=True)
 
     output_buffer.seek(0)
@@ -56,8 +53,7 @@ def process_image(url, row_index, col_index):
     """Processes a single image (download, remove background, save) 
        and uses row/col indices in the filename.
     """
-    start_time = time.time()
-    print(f"Processing image row:{row_index+1}, col:{col_index+1}: {url}")
+    print(f"Processing image row:{row_index+1}, col:{col_index+1}")
 
     image_data = download_image(url) 
     if image_data is None:
@@ -69,43 +65,48 @@ def process_image(url, row_index, col_index):
         print(f"  - Skipping {url} due to background removal error.")
         return None
 
-    # Use row and column indices in filename
     filename = f"{row_index+1}_{col_index+1}.webp" 
     save_path = os.path.join(image_dir, filename)
     with open(save_path, 'wb') as f:
         f.write(processed_image.getvalue())
 
-    end_time = time.time()
-    processing_time = round(end_time - start_time, 2)
-    print(f"  - Processed in {processing_time} seconds.")
     return filename
 
 def process_csv(csv_file_path):
-    """Processes the first 6 URLs found in each row of the CSV 
+    """Processes the first 6 URLs found in each row of the CSV,
+       skipping URLs for images that already exist in the output folder,
        and handles parallel image processing.
     """
     try:
-        with open(csv_file_path, 'r', encoding='utf-8') as file:
+        with open(csv_file_path, "r", encoding="utf-8") as file:
             reader = csv.reader(file)
 
             print(f"Processing CSV file...")
 
-            # 2. Parallel Image Processing
             processed_image_filenames = []
             with concurrent.futures.ProcessPoolExecutor() as executor:
                 futures = []
                 for row_index, row in enumerate(reader):
-                    url_count = 0  # Counter for processed URLs in the current row
+                    url_count = 0  
                     for col_index, cell_value in enumerate(row):
-                        urls_in_cell = cell_value.split(';')
+                        urls_in_cell = cell_value.split(";")
                         for url_index, url in enumerate(urls_in_cell):
                             url = url.strip()
                             if url.startswith("https://") and url_count < 6:
+                                filename = f"{row_index+1}_{col_index+1}.webp"
+                                image_path = os.path.join(image_dir, filename)
+                                if os.path.exists(image_path):
+                                    print(
+                                        f"  - Skipping {url} (image already exists)"
+                                    )
+                                    url_count += 1
+                                    continue  
+
                                 future = executor.submit(
                                     process_image, url, row_index, col_index
                                 )
                                 futures.append(future)
-                                url_count += 1  
+                                url_count += 1
 
                 for future in concurrent.futures.as_completed(futures):
                     result = future.result()
